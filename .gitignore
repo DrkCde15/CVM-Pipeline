@@ -1,0 +1,17 @@
+# Dados baixados da CVM (CSVs extraídos)
+data/
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Ambientes virtuais
+.venv/
+venv/
+
+# Configurações locais
+.env
+
+# Logs
+*.log
