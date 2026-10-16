@@ -16,11 +16,12 @@ Os dados são públicos e **não exigem autenticação**.
 
 ```
 CVM-Pipeline/
-├── download_cvm_data.py   # Script de download e descompactação
-├── create_uc_tables.py    # Script de criação das tabelas no Unity Catalog
+├── download_cvm_data.py     # Script de download e descompactação
+├── create_uc_tables.py      # Criação das tabelas no Unity Catalog
+├── validate_clean_data.py   # Validação e limpeza dos dados
 ├── README.md
 ├── .gitignore
-└── data/                  # CSVs baixados (ignorados pelo git)
+└── data/                    # CSVs baixados (ignorados pelo git)
     ├── inf_diario/
     ├── cadastro/
     └── cda/
@@ -64,6 +65,25 @@ Os dados são carregados no schema `main.cvm` com as seguintes tabelas:
 | `main.cvm.cda_pl` | Patrimônio líquido por fundo |
 | `main.cvm.cda_fiim` | Informações do gestor/instrumentos |
 | `main.cvm.cda_blc_1` a `cda_blc_8` | Blocos de balanço (títulos públicos, cotas, derivativos, etc.) |
+
+### Validar e limpar dados
+
+```python
+from validate_clean_data import validar_e_limpar_tudo
+
+# Validar e limpar todas as tabelas (sobrescreve com dados limpos)
+validar_e_limpar_tudo()
+
+# Apenas validar (sem alterar dados)
+validar_e_limpar_tudo(aplicar_limpeza=False)
+
+# Validar uma tabela específica
+from validate_clean_data import validar_tabela
+validar_tabela("inf_diario")
+```
+
+A limpeza remove duplicatas (chave de negócio), faz trim de strings,
+padroniza CNPJ (apenas dígitos) e converte strings vazias em NULL.
 
 ## Fonte dos dados
 
