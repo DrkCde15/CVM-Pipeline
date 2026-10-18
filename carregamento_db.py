@@ -39,10 +39,10 @@ def _garantir_schema():
 
 # Queries SQL das tabelas Gold (lêem de main.cvm.* — tabelas limpas pelo validate_clean_data.py)
 GOLD_QUERIES = {
-    # 1. Patrimônio líquido total por classe de fundo e mês
+    # 1. Patrimônio líquido total por tipo de fundo e mês
     "patrimonio_por_classe": """
         SELECT
-            c.CLASSE,
+            i.TP_FUNDO_CLASSE,
             i.DT_COMPTC,
             COUNT(DISTINCT i.CNPJ_FUNDO_CLASSE) AS qtd_fundos,
             SUM(i.VL_PATRIM_LIQ) AS vl_patrim_total,
@@ -50,31 +50,34 @@ GOLD_QUERIES = {
             SUM(i.RESG_DIA) AS resgate_total,
             SUM(i.CAPTC_DIA - i.RESG_DIA) AS fluxo_liquido
         FROM main.cvm.inf_diario i
-        LEFT JOIN main.cvm.cadastro c
-            ON i.CNPJ_FUNDO_CLASSE = c.CNPJ_FUNDO
         WHERE i.VL_PATRIM_LIQ IS NOT NULL
-        GROUP BY c.CLASSE, i.DT_COMPTC
-        ORDER BY i.DT_COMPTC, c.CLASSE
+        GROUP BY i.TP_FUNDO_CLASSE, i.DT_COMPTC
+        ORDER BY i.DT_COMPTC, i.TP_FUNDO_CLASSE
     """,
 
     # 2. Top 100 fundos por patrimônio (última data disponível)
     "top_fundos_patrimonio": """
         WITH ultima_data AS (
             SELECT MAX(DT_COMPTC) AS dt FROM main.cvm.inf_diario
+        ),
+        nomes_fundos AS (
+            SELECT CNPJ_FUNDO_CLASSE, DENOM_SOCIAL,
+                   ROW_NUMBER() OVER (PARTITION BY CNPJ_FUNDO_CLASSE ORDER BY DT_COMPTC DESC) AS rn
+            FROM main.cvm.cda_pl
+            WHERE DENOM_SOCIAL IS NOT NULL
         )
         SELECT
             i.CNPJ_FUNDO_CLASSE,
-            c.DENOM_SOCIAL,
-            c.CLASSE,
-            c.SIT,
+            n.DENOM_SOCIAL,
+            i.TP_FUNDO_CLASSE,
             i.DT_COMPTC,
             i.VL_PATRIM_LIQ,
             i.VL_QUOTA,
             i.NR_COTST,
             RANK() OVER (ORDER BY i.VL_PATRIM_LIQ DESC) AS ranking
         FROM main.cvm.inf_diario i
-        LEFT JOIN main.cvm.cadastro c
-            ON i.CNPJ_FUNDO_CLASSE = c.CNPJ_FUNDO
+        LEFT JOIN nomes_fundos n
+            ON i.CNPJ_FUNDO_CLASSE = n.CNPJ_FUNDO_CLASSE AND n.rn = 1
         CROSS JOIN ultima_data ud
         WHERE i.DT_COMPTC = ud.dt
             AND i.VL_PATRIM_LIQ IS NOT NULL
@@ -97,31 +100,32 @@ GOLD_QUERIES = {
         ORDER BY mes
     """,
 
-    # 4. Fundos ativos com info cadastral
+    # 4. Fundos ativos (com patrimônio reportado no último mês)
     "fundos_ativos": """
-        SELECT
-            c.CNPJ_FUNDO,
-            c.DENOM_SOCIAL,
-            c.CLASSE,
-            c.SIT,
-            c.DT_INI_ATIV,
-            c.RENTAB_FUNDO,
-            c.CONDOM,
-            c.FUNDO_COTAS,
-            c.TAXA_ADM,
-            c.TAXA_PERFM,
-            c.GESTOR,
-            c.ADMIN,
-            c.AUDITOR,
-            p.VL_PATRIM_LIQ,
-            p.DT_COMPTC AS dt_patrim
-        FROM main.cvm.cadastro c
-        LEFT JOIN (
-            SELECT CNPJ_FUNDO_CLASSE, VL_PATRIM_LIQ, DT_COMPTC,
+        WITH ultima_data AS (
+            SELECT MAX(DT_COMPTC) AS dt FROM main.cvm.inf_diario
+        ),
+        nomes_fundos AS (
+            SELECT CNPJ_FUNDO_CLASSE, DENOM_SOCIAL,
                    ROW_NUMBER() OVER (PARTITION BY CNPJ_FUNDO_CLASSE ORDER BY DT_COMPTC DESC) AS rn
             FROM main.cvm.cda_pl
-        ) p ON c.CNPJ_FUNDO = p.CNPJ_FUNDO_CLASSE AND p.rn = 1
-        WHERE c.SIT = 'EM FUNCIONAMENTO NORMAL'
+            WHERE DENOM_SOCIAL IS NOT NULL
+        )
+        SELECT
+            i.CNPJ_FUNDO_CLASSE,
+            n.DENOM_SOCIAL,
+            i.TP_FUNDO_CLASSE,
+            i.DT_COMPTC,
+            i.VL_PATRIM_LIQ,
+            i.VL_QUOTA,
+            i.NR_COTST
+        FROM main.cvm.inf_diario i
+        LEFT JOIN nomes_fundos n
+            ON i.CNPJ_FUNDO_CLASSE = n.CNPJ_FUNDO_CLASSE AND n.rn = 1
+        CROSS JOIN ultima_data ud
+        WHERE i.DT_COMPTC = ud.dt
+            AND i.VL_PATRIM_LIQ > 0
+        ORDER BY i.VL_PATRIM_LIQ DESC
     """,
 }
 
