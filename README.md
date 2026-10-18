@@ -19,7 +19,7 @@ CVM-Pipeline/
 ├── download_cvm_data.py     # Download e descompactação dos ZIPs da CVM
 ├── create_uc_tables.py      # Carga inicial das tabelas no Unity Catalog
 ├── validate_clean_data.py   # Validação e limpeza das tabelas
-├── carregamento_db.py       # Arquitetura medalhão (Bronze → Silver → Gold)
+├── carregamento_db.py       # Camada Gold (agregações de negócio)
 ├── README.md
 ├── .gitignore
 └── data/                    # CSVs baixados (ignorados pelo git)
@@ -55,9 +55,17 @@ criar_tabelas()
 criar_tabelas(nomes=["cadastro", "inf_diario"])
 ```
 
-## Tabelas no Unity Catalog
+## Arquitetura Medalhão
 
-### Carga inicial (`main.cvm.*`)
+Cada script do pipeline corresponde a uma camada da arquitetura medalhão:
+
+| Camada | Script | Schema | Descrição |
+| --- | --- | --- | --- |
+| Bronze | `create_uc_tables.py` | `main.cvm.*` | Dados crus carregados dos CSVs |
+| Silver | `validate_clean_data.py` | `main.cvm.*` | Dados limpos (dedup, CNPJ padronizado, trim) |
+| Gold | `carregamento_db.py` | `main.cvm_gold.*` | Agregações de negócio prontas para consumo |
+
+### Bronze – `main.cvm.*`
 
 Tabelas carregadas diretamente dos CSVs pelo `create_uc_tables.py`:
 
@@ -69,24 +77,7 @@ Tabelas carregadas diretamente dos CSVs pelo `create_uc_tables.py`:
 | `main.cvm.cda_fiim` | Informações do gestor/instrumentos |
 | `main.cvm.cda_blc_1` a `cda_blc_8` | Blocos de balanço (títulos públicos, cotas, derivativos, etc.) |
 
-### Arquitetura Medalhão (`carregamento_db.py`)
-
-| Camada | Schema | Descrição |
-| --- | --- | --- |
-| Bronze | `main.cvm_bronze.*` | Dados crus dos CSVs com metadados (_source_file, _load_date) |
-| Silver | `main.cvm_silver.*` | Dados limpos (dedup, CNPJ padronizado, trim) com MERGE incremental |
-| Gold | `main.cvm_gold.*` | Agregações de negócio prontas para consumo |
-
-Tabelas Gold:
-
-| Tabela | Descrição |
-| --- | --- |
-| `main.cvm_gold.patrimonio_por_classe` | Patrimônio, captação e resgate por classe de fundo e dia |
-| `main.cvm_gold.top_fundos_patrimonio` | Top 100 fundos por patrimônio (última data) |
-| `main.cvm_gold.captacao_resgate_mensal` | Captação, resgate e fluxo líquido por mês |
-| `main.cvm_gold.fundos_ativos` | Fundos em funcionamento com info cadastral e patrimônio |
-
-### Validar e limpar dados
+### Silver – Limpeza
 
 ```python
 from validate_clean_data import validar_e_limpar_tudo
@@ -101,29 +92,34 @@ validar_e_limpar_tudo(aplicar_limpeza=False)
 A limpeza remove duplicatas (chave de negócio), faz trim de strings,
 padroniza CNPJ (apenas dígitos) e converte strings vazias em NULL.
 
-### Carregar medalhão
+### Gold – Agregações (`main.cvm_gold.*`)
 
 ```python
-from carregamento_db import carregar_tudo
+from carregamento_db import carregar_gold
 
-# Executar Bronze → Silver → Gold
-carregar_tudo()
+# Criar todas as 4 tabelas Gold
+carregar_gold()
 
-# Ou executar camadas individualmente
-from carregamento_db import carregar_bronze, carregar_silver, carregar_gold
-carregar_bronze()   # CSVs → Bronze (overwrite)
-carregar_silver()   # Bronze → Silver (MERGE incremental)
-carregar_gold()     # Silver → Gold (agregações)
+# Ou criar apenas tabelas específicas
+carregar_gold(nomes=["patrimonio_por_classe"])
 ```
+
+Tabelas Gold:
+
+| Tabela | Descrição |
+| --- | --- |
+| `main.cvm_gold.patrimonio_por_classe` | Patrimônio, captação e resgate por classe de fundo e dia |
+| `main.cvm_gold.top_fundos_patrimonio` | Top 100 fundos por patrimônio (última data) |
+| `main.cvm_gold.captacao_resgate_mensal` | Captação, resgate e fluxo líquido por mês |
+| `main.cvm_gold.fundos_ativos` | Fundos em funcionamento com info cadastral e patrimônio |
 
 ## Fluxo completo do pipeline
 
 ```
-1. download_cvm_data.py     → baixa e descompacta os CSVs da CVM para data/
-2. carregamento_db.py       → carrega os dados em 3 camadas:
-   ├── Bronze  (overwrite)   → dados crus com metadados
-   ├── Silver  (MERGE)        → limpos e deduplicados incremental
-   └── Gold    (overwrite)   → agregações de negócio
+1. download_cvm_data.py      → Bronze: baixa e descompacta os CSVs da CVM para data/
+2. create_uc_tables.py       → Bronze: carrega os CSVs como tabelas em main.cvm.*
+3. validate_clean_data.py    → Silver: limpa as tabelas main.cvm.* (dedup, CNPJ, trim)
+4. carregamento_db.py        → Gold: cria agregações em main.cvm_gold.*
 ```
 
 ## Fonte dos dados
